@@ -82,23 +82,6 @@ test('offset-files: a topic that is its layer; other levels; a batch larger than
   t.is(await inbox.read.more(), null, 'asked again: no more')
 })
 
-test('offset-files: a position right on the records: the latest, the latest N: read from the latest back and no further', async (t) => {
-  const latest = reading('done/*[last()]')
-  t.alike(offsets(await latest.read.all()), [1795500000000], 'the latest record')
-  t.alike(latest.ran, ["done/17955/179550/*[name()<='1795500000000.json'][position()>last()-1]"], 'one physical query, one record asked for')
-  t.alike(offsets(await reading('done/*[position()=last()]').read.all()), [1795500000000], 'position()=last(): the same')
-  const five = reading('done/*[position()>last()-5]')
-  t.alike(offsets(await five.read.more()), [1795500000000, 1795400000003, 1795400000002], 'the latest five: a first batch of three')
-  t.alike(offsets(await five.read.more()), [1795400000001, 1795400000000], 'then the two left: no more asked for than that')
-  t.is(five.ran.at(-1), "done/17954/179540/*[name()<'1795400000002.json'][position()>last()-2]")
-  t.alike([five.set.done, await five.read.more()], [true, null], 'its count read: the end, nothing before it touched')
-  t.alike(offsets(await reading('done/*[position()>last()-100]').read.all()), [...OFFSETS].reverse(), 'more than there are: all of them')
-  t.alike(await reading('done/*[position()>last()-0]').read.all(), [], 'none asked: none, nothing run')
-  const crud = reading("done/*[position()>last()-4][value/value/protocol='crud']")
-  t.alike(offsets(await crud.read.all()), [1795400000003, 1795400000001], 'the latest four, then what is asked of them: of those four, the ones that hold')
-  t.is(crud.asked.documents, 4, 'only those four opened')
-})
-
 test('offset-files: an offset is an index: one record by a scan of its folder; bounds say where the reading starts and stops', async (t) => {
   const one = reading('done/*[@offset=1795399999999]')
   t.alike(offsets(await one.read.all()), [1795399999999], 'one record')
@@ -112,7 +95,6 @@ test('offset-files: an offset is an index: one record by a scan of its folder; b
   const below = reading('done/*[@offset<1795400000002]')
   t.alike(offsets(await below.read.more()), [1795400000001, 1795400000000, 1795399999999], 'below an offset: the reading starts there')
   t.is(below.ran[0], "done/17954/179540/*[name()<='1795400000001.json'][position()>last()-3]", 'in its folder, nothing later touched')
-  t.alike(offsets(await reading('done/*[@offset<=1795400000002][position()>last()-2]').read.all()), [1795400000002, 1795400000001], 'the two up to an offset: a page back')
   // back to a point
   const since = reading('done/*[@offset>1795400000000]')
   t.alike(offsets(await since.read.all()), [1795500000000, 1795400000003, 1795400000002, 1795400000001], 'after a pointer: what arrived since')
@@ -120,16 +102,12 @@ test('offset-files: an offset is an index: one record by a scan of its folder; b
   t.ok(since.ran.some(x => x.includes("[name()>='1795400000001.json']")), 'in the pointer\'s folder the scan stops at it')
   t.alike(offsets(await reading('done/*[@offset>=1795399999999][@offset<1795400000002]').read.all()), [1795400000001, 1795400000000, 1795399999999], 'between two')
   t.alike(await reading('done/*[@offset>1795500000000]').read.all(), [], 'after the latest: none')
-  t.alike(offsets(await reading('done/*[@offset>1795312345678][position()>last()-1]').read.all()), [1795500000000], 'a bound then a position: the latest of what it leaves')
 })
 
-test('offset-files: what is no topic\'s records, and a position not built yet, said', (t) => {
+test('offset-files: what is no topic\'s records, and a position in its query, said', (t) => {
   const set = q => nodeset({ query: q, mode: 'logical' }, TOPIC, 1)
   t.exception(() => next(set('pending/*')), /not a topic's records: pending\/\* \(done\/\*, its filters, a path into a record\)/)
   t.exception(() => next(set('done')), /not a topic's records/)
-  t.exception(() => next(set('done/*[2]')), /not built yet: \[2\]/)
-  t.exception(() => next(set('done/*[position()<=10]')), /not built yet: \[position\(\)<=10\]/)
-  t.exception(() => next(set("done/*[value/a='x'][last()]")), /a position among a topic's records, here: not built yet: \[last\(\)\] .*built: \[last\(\)\] and \[position\(\)>last\(\)-N\] right on the records/)
-  t.exception(() => next(set('done/*[last()][last()]')), /not built yet/)
+  for (const q of ['done/*[2]', 'done/*[last()]', 'done/*[position()<=10]', 'done/*[position()>last()-100]', "done/*[value/a='x'][last()]", 'done/*[@offset<5][last()]']) t.exception(() => next(set(q)), /a position is no part of a topic's query: .* who reads the result takes as many as it wants/, q)
   t.execution(() => next(set("done/*[value/note='the last() one']")), 'a text that says last() is no position')
 })

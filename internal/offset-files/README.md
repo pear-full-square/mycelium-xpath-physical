@@ -45,20 +45,19 @@ when the query was made; `null`: nothing in it.
   handed over the latest first; `full` when the batch has its count;
   `done` at the topic's start. A batch may take several physical
   queries: one stays inside one stored folder.
-- `plan`: `{ exact, upper, lower, limit, asked }`. Handed down, the
-  filters right on the records, in this order:
+- `plan`: `{ exact, upper, lower, asked }`. Handed down, the filters
+  right on the records:
   - **bounds on the offset**, the index its name is: `[@offset=N]`, one
     record: its folder said by its digits, that folder scanned for it
     (`done/17953/179539/*[name()='1795399999999.json']`), no other
     touched; `[@offset<N]`, `[@offset<=N]`: the reading starts there,
     nothing later touched; `[@offset>N]`, `[@offset>=N]`: it stops
     there, nothing before that folder touched;
-  - **then a position**: `[last()]`, the latest; `[position()>last()-N]`,
-    the latest N: that many records are read and no more.
   The rest is asked of each record read: filters on its data, a path
   into it. A logical query that is not `<topic>/*` with filters and a
-  path is refused; a position anywhere else (after a filter on the
-  data, counted from the topic's start) too, said as not built yet.
+  path is refused. So is a position (`[last()]`, `[position()<=10]`): a
+  query says where, never how many; who reads the result takes as many
+  as it wants.
 
 ## Side effects
 

@@ -33,23 +33,21 @@ function filters (rest) {
 const positional = filter => /^\d+$/.test(filter) || /\b(position|last)\s*\(/.test(filter.replace(/'[^']*'|"[^"]*"/g, ''))
 
 // What a logical query asks of its topic, read once from its text:
-//   handed down, the filters right on the records, in this order:
+//   handed down, the filters right on the records:
 //     bounds on the offset      [@offset=N] one record; [@offset<N],
 //                               [@offset<=N] from there back; [@offset>N],
 //                               [@offset>=N] back to there: the offset's
 //                               digits say the folder, the scan is in it
-//     then a position           [last()] the latest; [position()>last()-N]
-//                               the latest N: how many records are read
 //   asked of each record read (filters on its data, a path into it): the rest
-// A position anywhere else (after a filter on the data, from the topic's
-// start) is not built yet: refused, said.
+// A query says where, never how many: a position among a topic's records
+// is refused, said: who reads the result takes as many as it wants.
 export function plan (set) {
   const { topic } = meta(set)
   const all = topic ? `${topic}/*` : '*'
   const query = set.logical.query
   if (query !== all && !(query.startsWith(all) && '[/'.includes(query[all.length]))) throw new Error(`not a topic's records: ${query} (${all}, its filters, a path into a record)`)
   const { filters: list, after } = filters(query.slice(all.length))
-  const p = { exact: null, upper: null, lower: null, limit: null, asked: '' }
+  const p = { exact: null, upper: null, lower: null, asked: '' }
   let i = 0
   for (; i < list.length; i++) {
     const m = list[i].match(/^@?offset\s*(=|<=|>=|<|>)\s*(\d+)$/)
@@ -59,11 +57,7 @@ export function plan (set) {
     // (several: the narrowest holds)
     else if (m[1][0] === '<') { const at = m[1] === '<' ? n - 1 : n; p.upper = p.upper === null ? at : Math.min(p.upper, at) } else { const at = m[1] === '>' ? n + 1 : n; p.lower = p.lower === null ? at : Math.max(p.lower, at) }
   }
-  if (i < list.length) {
-    const m = list[i].match(/^position\s*\(\s*\)\s*>\s*last\s*\(\s*\)\s*-\s*(\d+)$/)
-    if (/^last\s*\(\s*\)$/.test(list[i]) || /^position\s*\(\s*\)\s*=\s*last\s*\(\s*\)$/.test(list[i])) { p.limit = 1; i++ } else if (m) { p.limit = Number(m[1]); i++ }
-  }
-  for (const f of list.slice(i)) if (positional(f)) throw new Error(`a position among a topic's records, here: not built yet: [${f}] (in ${query}; built: [last()] and [position()>last()-N] right on the records, after bounds on @offset)`)
+  for (const f of list.slice(i)) if (positional(f)) throw new Error(`a position is no part of a topic's query: [${f}] (in ${query}: it says where, bounds on @offset and filters on the data; who reads the result takes as many as it wants)`)
   p.asked = list.slice(i).map(f => `[${f}]`).join('') + after
   return p
 }
@@ -71,11 +65,11 @@ export const asked = set => plan(set).asked
 
 // Where a node set starts: the folder of the latest offset it wants (its
 // fixed one, or its upper bound where that is earlier), that offset the
-// first wanted; how many are still to read (its limit).
+// first wanted, a whole batch to get.
 const start = (set, p) => {
   const { levels, batch } = meta(set)
   const name = nameOf(p.upper === null ? set.fixed : Math.min(set.fixed, p.upper))
-  return { phase: 'records', folder: levels.map(n => name.slice(0, n)), bound: name, inclusive: true, need: p.limit === null ? batch : Math.min(batch, p.limit), left: p.limit }
+  return { phase: 'records', folder: levels.map(n => name.slice(0, n)), bound: name, inclusive: true, need: batch }
 }
 const stateOf = (set, p) => set.reached ?? start(set, p)
 const pathOf = (set, ...names) => [meta(set).topic, ...names].filter(Boolean).join('/')
@@ -88,10 +82,10 @@ export function next (set) {
   const file = name => quoted(`${name}.${extension}`)
   // one record, by its offset: its folder said by its digits, scanned for it
   if (p.exact !== null) {
-    const out = p.exact > set.fixed || (p.upper !== null && p.exact > p.upper) || (p.lower !== null && p.exact < p.lower) || p.limit === 0
+    const out = p.exact > set.fixed || (p.upper !== null && p.exact > p.upper) || (p.lower !== null && p.exact < p.lower)
     return out ? null : `${pathOf(set, ...folderOf(set, p.exact))}/*[name()=${file(nameOf(p.exact))}]${p.asked}`
   }
-  if (p.limit === 0 || (p.lower !== null && p.lower > set.fixed)) return null
+  if (p.lower !== null && p.lower > set.fixed) return null
   const s = stateOf(set, p)
   // back to a lower bound: in its folder, the scan stops at it
   const floor = p.lower !== null && s.folder.join('/') === folderOf(set, p.lower).join('/') ? `[name()>=${file(nameOf(p.lower))}]` : ''
@@ -128,14 +122,11 @@ export function took (set, text, result) {
   // a folder earlier than the lower bound's: nothing wanted there or before it
   const below = folder => lowest !== null && folder.some((name, i) => name < lowest[i] && folder.slice(0, i).every((x, j) => x === lowest[j]))
   // a part of a batch read: on to where it ended; the folder run out: the
-  // one before; its limit reached, or its lower bound's folder done: the end
+  // one before; its lower bound's folder done: the end
   const on = (from, low, count) => {
-    const left = from.left === null ? null : from.left - count
-    if (left === 0) return 'end'
     const need = from.need - count
-    const size = left === null ? batch : Math.min(batch, left)
-    if (count < from.need) return lowest !== null && from.folder.join('/') === lowest.join('/') ? 'end' : { phase: 'before', folder: from.folder, level: levels.length - 1, need: need > 0 ? need : size, left }
-    return { phase: 'records', folder: from.folder, bound: low, inclusive: false, need: need > 0 ? need : size, left }
+    if (count < from.need) return lowest !== null && from.folder.join('/') === lowest.join('/') ? 'end' : { phase: 'before', folder: from.folder, level: levels.length - 1, need: need > 0 ? need : batch }
+    return { phase: 'records', folder: from.folder, bound: low, inclusive: false, need: need > 0 ? need : batch }
   }
   const part = (nodes, stopped, low, count) => {
     const reached = on(s, low, count)
@@ -145,13 +136,13 @@ export function took (set, text, result) {
     // (in the order they arrived; handed over the latest first)
     const names = result.found.map(f => last(f.path).slice(0, -(extension.length + 1)))
     if (!names.length) return part([], [], null, 0)
-    if (p.asked) return { ...none, reached: { phase: 'asked', folder: s.folder, low: names[0], high: names.at(-1), count: names.length, need: s.need, left: s.left } }
+    if (p.asked) return { ...none, reached: { phase: 'asked', folder: s.folder, low: names[0], high: names.at(-1), count: names.length, need: s.need } }
     return part([...result.found].reverse(), result.stopped, names[0], names.length)
   }
   if (s.phase === 'asked') return part([...result.found].reverse(), result.stopped, s.low, s.count)
   const into = folder => (below(folder) ? end : folder.length === levels.length
-    ? { ...none, reached: { phase: 'records', folder, bound: null, inclusive: false, need: s.need, left: s.left } }
-    : { ...none, reached: { phase: 'last', folder, level: folder.length, need: s.need, left: s.left } })
+    ? { ...none, reached: { phase: 'records', folder, bound: null, inclusive: false, need: s.need } }
+    : { ...none, reached: { phase: 'last', folder, level: folder.length, need: s.need } })
   if (s.phase === 'before') {
     const found = result.found[0]
     // none before it at this level: a level up; at the top: the topic's start
@@ -161,7 +152,7 @@ export function took (set, text, result) {
   if (s.phase === 'last') {
     const found = result.found[0]
     // a folder with nothing in it: the one before it
-    if (!found) return { ...none, reached: { phase: 'before', folder: s.folder, level: s.level - 1, need: s.need, left: s.left } }
+    if (!found) return { ...none, reached: { phase: 'before', folder: s.folder, level: s.level - 1, need: s.need } }
     return into([...s.folder, last(found.path)])
   }
   throw new Error(`not a state of an offset-files node set: ${s.phase}`)
