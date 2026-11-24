@@ -17,10 +17,10 @@ const treeOf = (asked = { documents: 0 }) => ({
   document: node => { if (isFile(node)) { asked.documents++; return node } return null }
 })
 const TOPIC = { type: 'offset-files', topic: 'done', levels: [5, 6], batch: 3, extension: 'json' }
-function reading (logical, { root = stored(), fixed = OFFSETS.at(-1), physical = TOPIC } = {}) {
+function reading (logical, { root = stored(), fixed = OFFSETS.at(-1), physical = TOPIC, ascending = false } = {}) {
   const ran = []
   const asked = { documents: 0 }
-  const set = nodeset({ query: logical, mode: 'logical', layer: 'request' }, physical, fixed)
+  const set = nodeset({ query: logical, mode: 'logical', layer: 'request', ascending }, physical, fixed)
   const read = reader(set, { next, took, run: text => { ran.push(text); return query(treeOf(asked), root, text) } })
   return { set, read, ran, asked }
 }
@@ -110,4 +110,20 @@ test('offset-files: what is no topic\'s records, and a position in its query, sa
   t.exception(() => next(set('done')), /not a topic's records/)
   for (const q of ['done/*[2]', 'done/*[last()]', 'done/*[position()<=10]', 'done/*[position()>last()-100]', "done/*[value/a='x'][last()]", 'done/*[@offset<5][last()]']) t.exception(() => next(set(q)), /a position is no part of a topic's query: .* who reads the result takes as many as it wants/, q)
   t.execution(() => next(set("done/*[value/note='the last() one']")), 'a text that says last() is no position')
+})
+
+test('offset-files: ascending: the same topic from its earliest on, or from a lower bound; up to the fixed offset, no record opened', async (t) => {
+  const { set, read, ran, asked } = reading('done/*', { ascending: true, fixed: 1795400000003 })
+  t.alike(offsets(await read.more()), [1795312345678, 1795312345679, 1795312399999], 'the first batch: the earliest three, in the order they arrived')
+  t.alike(ran, ['done/*[1]', 'done/17953/*[1]', 'done/17953/179531/*[position()<=3]'], 'its physical queries: the topic\'s first folder found from its top, then that folder from its start')
+  t.is(asked.documents, 0, 'by names and positions: no record opened')
+  t.alike(offsets(await read.all()), OFFSETS.slice(0, 8), 'to its end: every record up to the fixed offset; one that arrived after it is not in it')
+  t.alike([set.done, set.reached], [true, 'end'])
+  t.ok(ran.some(q => q.includes("[name()<='1795400000003.json']")), 'in the fixed offset\'s folder: the scan stops at it')
+  // from a pointer on: what arrived since, the earliest first (an inbox's reading)
+  t.alike(offsets(await reading('done/*[@offset>1795399999999]', { ascending: true }).read.all()), [1795400000000, 1795400000001, 1795400000002, 1795400000003, 1795500000000], 'after a pointer: what arrived since, in the order it arrived')
+  t.alike(offsets(await reading('done/*[@offset>=1795312345679][@offset<1795400000001]', { ascending: true }).read.all()), [1795312345679, 1795312399999, 1795399999999, 1795400000000], 'between two bounds, ascending')
+  t.alike(await reading('done/*[@offset>1795500000000]', { ascending: true }).read.all(), [], 'after the latest: none')
+  t.alike(offsets(await reading("done/*[value/value/protocol='crud']", { ascending: true }).read.all()), OFFSETS.filter((o, i) => i % 2), 'a filter on the data, ascending: each batch opened, in order')
+  t.alike(await reading('*', { ascending: true, root: {}, fixed: null, physical: { ...TOPIC, topic: '' } }).read.all(), [], 'a topic with nothing in it: nothing')
 })

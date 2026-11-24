@@ -18,3 +18,4 @@ The tests of mycelium-xpath-physical, a section per file, each test by its name.
 - offset-files: a topic that is its layer; other levels; a batch larger than what is there
 - offset-files: an offset is an index: one record by a scan of its folder; bounds say where the reading starts and stops
 - offset-files: what is no topic's records, and a position in its query, said
+- offset-files: ascending: the same topic from its earliest on, or from a lower bound; up to the fixed offset, no record opened

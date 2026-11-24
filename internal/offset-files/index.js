@@ -63,12 +63,21 @@ export function plan (set) {
 }
 export const asked = set => plan(set).asked
 
-// Where a node set starts: the folder of the latest offset it wants (its
-// fixed one, or its upper bound where that is earlier), that offset the
-// first wanted, a whole batch to get.
+// The direction of a reading: from the latest back (when none is said), or
+// ascending, from the earliest on (set.logical.ascending): the same walk,
+// mirrored: the edge it starts at, the side a folder is read from, the
+// folder it goes on to.
+const asc = set => set.logical.ascending === true
+// the latest offset it wants: its fixed one, or its upper bound where that is earlier
+const topOf = (set, p) => (p.upper === null ? set.fixed : Math.min(set.fixed, p.upper))
+// Where a node set starts: the folder of the first offset it wants, that
+// offset the first wanted, a whole batch to get. From the latest back:
+// the latest it wants. Ascending: its lower bound; none: the topic's
+// first folder, found from its top.
 const start = (set, p) => {
   const { levels, batch } = meta(set)
-  const name = nameOf(p.upper === null ? set.fixed : Math.min(set.fixed, p.upper))
+  if (asc(set) && p.lower === null) return { phase: 'last', folder: [], level: 0, need: batch }
+  const name = nameOf(asc(set) ? p.lower : topOf(set, p))
   return { phase: 'records', folder: levels.map(n => name.slice(0, n)), bound: name, inclusive: true, need: batch }
 }
 const stateOf = (set, p) => set.reached ?? start(set, p)
@@ -85,18 +94,21 @@ export function next (set) {
     const out = p.exact > set.fixed || (p.upper !== null && p.exact > p.upper) || (p.lower !== null && p.exact < p.lower)
     return out ? null : `${pathOf(set, ...folderOf(set, p.exact))}/*[name()=${file(nameOf(p.exact))}]${p.asked}`
   }
-  if (p.lower !== null && p.lower > set.fixed) return null
+  if (p.lower !== null && p.lower > topOf(set, p)) return null
   const s = stateOf(set, p)
-  // back to a lower bound: in its folder, the scan stops at it
-  const floor = p.lower !== null && s.folder.join('/') === folderOf(set, p.lower).join('/') ? `[name()>=${file(nameOf(p.lower))}]` : ''
-  // the records of one folder, from where it has read to, back: by name and position, none opened
-  if (s.phase === 'records') return `${pathOf(set, ...s.folder)}/*${s.bound === null ? '' : `[name()${s.inclusive ? '<=' : '<'}${file(s.bound)}]`}${floor}[position()>last()-${s.need}]`
+  const up = asc(set)
+  // to its far bound (back: a lower bound; ascending: the latest it
+  // wants): in that one's folder, the scan stops at it
+  const far = up ? topOf(set, p) : p.lower
+  const edge = far !== null && s.folder.join('/') === folderOf(set, far).join('/') ? `[name()${up ? '<=' : '>='}${file(nameOf(far))}]` : ''
+  // the records of one folder, from where it has read to, on in its direction: by name and position, none opened
+  if (s.phase === 'records') return `${pathOf(set, ...s.folder)}/*${s.bound === null ? '' : `[name()${up ? '>' : '<'}${s.inclusive ? '=' : ''}${file(s.bound)}]`}${edge}${up ? `[position()<=${s.need}]` : `[position()>last()-${s.need}]`}`
   // those same records, what is asked of them: opened
   if (s.phase === 'asked') return `${pathOf(set, ...s.folder)}/*[name()>=${file(s.low)}][name()<=${file(s.high)}]${p.asked}`
-  // the folder before this one, in its parent
-  if (s.phase === 'before') return `${pathOf(set, ...s.folder.slice(0, s.level))}/*[name()<${quoted(s.folder[s.level])}][last()]`
-  // the last folder of one found, a level down
-  if (s.phase === 'last') return `${pathOf(set, ...s.folder.slice(0, s.level))}/*[last()]`
+  // the folder next to this one in its direction, in its parent
+  if (s.phase === 'before') return `${pathOf(set, ...s.folder.slice(0, s.level))}/*[name()${up ? '>' : '<'}${quoted(s.folder[s.level])}]${up ? '[1]' : '[last()]'}`
+  // the first folder in its direction of one found, a level down
+  if (s.phase === 'last') return `${pathOf(set, ...s.folder.slice(0, s.level))}/*${up ? '[1]' : '[last()]'}`
   throw new Error(`not a state of an offset-files node set: ${s.phase}`)
 }
 
@@ -118,28 +130,32 @@ export function took (set, text, result) {
   const end = { ...none, reached: 'end', done: true }
   if (p.exact !== null) return { nodes: result.found, stopped: result.stopped, reached: 'end', done: true, full: true }
   const s = stateOf(set, p)
-  const lowest = p.lower === null ? null : folderOf(set, p.lower)
-  // a folder earlier than the lower bound's: nothing wanted there or before it
-  const below = folder => lowest !== null && folder.some((name, i) => name < lowest[i] && folder.slice(0, i).every((x, j) => x === lowest[j]))
+  const up = asc(set)
+  // its far bound's folder (back: a lower bound's; ascending: the latest it wants)
+  const far = up ? topOf(set, p) : p.lower
+  const farthest = far === null ? null : folderOf(set, far)
+  // a folder past the far bound's: nothing wanted there or beyond it
+  const below = folder => farthest !== null && folder.some((name, i) => (up ? name > farthest[i] : name < farthest[i]) && folder.slice(0, i).every((x, j) => x === farthest[j]))
   // a part of a batch read: on to where it ended; the folder run out: the
-  // one before; its lower bound's folder done: the end
-  const on = (from, low, count) => {
+  // next in its direction; its far bound's folder done: the end
+  const on = (from, at, count) => {
     const need = from.need - count
-    if (count < from.need) return lowest !== null && from.folder.join('/') === lowest.join('/') ? 'end' : { phase: 'before', folder: from.folder, level: levels.length - 1, need: need > 0 ? need : batch }
-    return { phase: 'records', folder: from.folder, bound: low, inclusive: false, need: need > 0 ? need : batch }
+    if (count < from.need) return farthest !== null && from.folder.join('/') === farthest.join('/') ? 'end' : { phase: 'before', folder: from.folder, level: levels.length - 1, need: need > 0 ? need : batch }
+    return { phase: 'records', folder: from.folder, bound: at, inclusive: false, need: need > 0 ? need : batch }
   }
-  const part = (nodes, stopped, low, count) => {
-    const reached = on(s, low, count)
+  const part = (nodes, stopped, at, count) => {
+    const reached = on(s, at, count)
     return { nodes, stopped, reached, done: reached === 'end', full: s.need - count <= 0 }
   }
+  // (found in the order they arrived: handed over so ascending, the latest first otherwise)
+  const ordered = found => (up ? [...found] : [...found].reverse())
   if (s.phase === 'records') {
-    // (in the order they arrived; handed over the latest first)
     const names = result.found.map(f => last(f.path).slice(0, -(extension.length + 1)))
     if (!names.length) return part([], [], null, 0)
     if (p.asked) return { ...none, reached: { phase: 'asked', folder: s.folder, low: names[0], high: names.at(-1), count: names.length, need: s.need } }
-    return part([...result.found].reverse(), result.stopped, names[0], names.length)
+    return part(ordered(result.found), result.stopped, up ? names.at(-1) : names[0], names.length)
   }
-  if (s.phase === 'asked') return part([...result.found].reverse(), result.stopped, s.low, s.count)
+  if (s.phase === 'asked') return part(ordered(result.found), result.stopped, up ? s.high : s.low, s.count)
   const into = folder => (below(folder) ? end : folder.length === levels.length
     ? { ...none, reached: { phase: 'records', folder, bound: null, inclusive: false, need: s.need } }
     : { ...none, reached: { phase: 'last', folder, level: folder.length, need: s.need } })
@@ -151,8 +167,8 @@ export function took (set, text, result) {
   }
   if (s.phase === 'last') {
     const found = result.found[0]
-    // a folder with nothing in it: the one before it
-    if (!found) return { ...none, reached: { phase: 'before', folder: s.folder, level: s.level - 1, need: s.need } }
+    // a folder with nothing in it: the next one in its direction (the topic itself: its end)
+    if (!found) return s.level === 0 ? end : { ...none, reached: { phase: 'before', folder: s.folder, level: s.level - 1, need: s.need } }
     return into([...s.folder, last(found.path)])
   }
   throw new Error(`not a state of an offset-files node set: ${s.phase}`)

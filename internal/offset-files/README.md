@@ -41,6 +41,12 @@ when the query was made; `null`: nothing in it.
     `done/17954/*[name()<'179540'][last()]`, a level up where there is
     none, and the last folder below one found, `done/17953/*[last()]`;
   - `null`: read to the topic's start, or nothing in it.
+  - ascending (the node set's `logical.ascending`), the same walk
+    mirrored: from the topic's earliest record, or from a lower bound,
+    on to the fixed offset, in the order the records arrived:
+    `done/17953/179531/*[name()>'1795312345679.json'][position()<=50]`,
+    the next folder `done/17953/*[name()>'179531'][1]`. An inbox read
+    after its pointer is this.
 - `took`: `{ nodes, stopped, reached, done, full }`: a batch's records
   handed over the latest first; `full` when the batch has its count;
   `done` at the topic's start. A batch may take several physical
