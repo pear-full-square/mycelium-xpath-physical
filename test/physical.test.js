@@ -16,7 +16,7 @@ test('the structure types there are; one not there is said', (t) => {
 
 test('tree: its physical query is the logical one, once; its result the whole answer', (t) => {
   const set = nodeset({ query: 'swarms/*', layer: 'main' })
-  t.alike(set, { logical: { query: 'swarms/*', mode: 'physical', layer: 'main' }, fixed: null, reached: null, physical: { type: 'tree' }, nodes: [], stopped: [], done: false }, 'a node set, made: the request, its storage, nothing loaded')
+  t.alike(set, { id: null, logical: { query: 'swarms/*', mode: 'physical', layer: 'main' }, fixed: null, reached: null, physical: { type: 'tree' }, nodes: [], stopped: [], done: false }, 'a node set, made: the request, its storage, nothing loaded')
   t.is(next(set), 'swarms/*', 'the physical XPath: the logical one')
   const step = took(set, 'swarms/*', { found: [{ path: '/swarms/swarm-1' }], stopped: [] })
   t.alike(step, { nodes: [{ path: '/swarms/swarm-1' }], stopped: [], reached: 'end', done: true, full: true })
