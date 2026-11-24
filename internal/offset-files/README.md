@@ -14,6 +14,9 @@ at a time, from the node set's fixed offset back: the latest first.
 - `next(set)`: the physical query for the next part of the node set's
   next batch.
 - `took(set, text, result)`: what that query's result is to the node set.
+- `addressOf(set, path)`: a stored record's logical address,
+  `<topic>/*[@offset=<offset>]` and what of it was asked after: no
+  folder of its storage, no file's name.
 - `plan(set)`: what the logical query asks of its topic, read from its
   text: what is handed down (bounds on the offset, a position) and what
   is asked of each record read. `asked(set)`: the latter alone.

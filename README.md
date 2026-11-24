@@ -34,6 +34,8 @@ To come: an AVRO container, a Hypercore topic.
   what that query's result is to the node set: the nodes it gave, where
   it stopped at a shortcut, where the node set has now read to, whether
   that is its end, whether its batch is full
+- `addressOf(set, path)` → a stored path as its logical address: what a
+  reader of the result sees (`mycelium-xpath`'s `XPathResult`)
 - `isType(name)` → whether it is a structure type there is; `TYPES`
 
 Pure functions of the node set's data: nothing is read here. The query

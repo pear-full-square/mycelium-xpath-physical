@@ -8,6 +8,7 @@
 //                                next batch; null: no more
 //   took(set, text, result)   -> { nodes, stopped, reached, done, full }:
 //                                what that query's result is to the node set
+//   addressOf(set, path)      -> a stored path as its logical address
 //   isType(name), TYPES       the structure types there are
 // Pure functions of the node set's data: a run reproduces them.
 import * as tree from './internal/tree/index.js'
@@ -22,3 +23,5 @@ const of = set => {
 }
 export const next = set => of(set).next(set)
 export const took = (set, text, result) => of(set).took(set, text, result)
+// a stored path as its logical address: what a reader of the result sees
+export const addressOf = (set, path) => of(set).addressOf(set, path)

@@ -106,6 +106,16 @@ export function next (set) {
   throw new Error(`not a state of an offset-files node set: ${s.phase}`)
 }
 
+// A record's logical address: <topic>/*[@offset=<offset>], and what of it
+// was asked after: no folder of its storage, no file's name.
+export function addressOf (set, path) {
+  const { topic, levels, extension } = meta(set)
+  const parts = path.replace(/^\//, '').split('/')
+  const depth = (topic ? topic.split('/').length : 0) + levels.length
+  const offset = Number(parts[depth].slice(0, -(extension.length + 1)))
+  return '/' + [topic, `*[@offset=${offset}]`, ...parts.slice(depth + 1)].filter(Boolean).join('/')
+}
+
 const last = path => path.slice(path.lastIndexOf('/') + 1)
 export function took (set, text, result) {
   const { batch, levels, extension } = meta(set)

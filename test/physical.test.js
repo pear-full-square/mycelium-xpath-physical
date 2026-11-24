@@ -1,6 +1,6 @@
 import test from 'brittle'
-import { query, nodeset, reader } from 'mycelium-xpath'
-import { next, took, isType, TYPES } from '../index.js'
+import { query, nodeset, reader, XPathResult } from 'mycelium-xpath'
+import { next, took, addressOf, isType, TYPES } from '../index.js'
 
 const root = { swarms: { 'swarm-1': { nodes: { 'node-1': {}, 'node-2': {} } }, 'swarm-2': { nodes: {} } }, notes: {} }
 const tree = { children: node => (node !== null && typeof node === 'object' ? Object.entries(node) : null) }
@@ -49,4 +49,42 @@ test('a node set read to its end, and node by node', async (t) => {
   for await (const node of reading('*')) every.push(node.path)
   t.alike(every, ['/swarms', '/notes'])
   t.alike(await reading('nothing/*').all(), [], 'nothing there: empty, done')
+})
+
+test('XPathResult: a query\'s result as an iterator: the next node asked for, its slices fetched under the hood, each node at its logical address', async (t) => {
+  // a topic stored a record a file by its offset, in folders by its digits
+  const record = offset => ({ topic: '/request/done', offset, value: { n: offset % 10 } })
+  const offsets = [1795312345678, 1795399999999, 1795400000000, 1795400000001, 1795400000002]
+  const done = {}
+  for (const o of offsets) { const n = String(o); ((done[n.slice(0, 5)] ??= {})[n.slice(0, 6)] ??= {})[`${n}.json`] = record(o) }
+  const isFile = node => node && typeof node === 'object' && 'offset' in node
+  const stored = { children: node => (node && typeof node === 'object' && !isFile(node) ? Object.entries(node).sort(([a], [b]) => (a < b ? -1 : 1)) : null), document: node => (isFile(node) ? node : null) }
+  const ran = []
+  const result = new XPathResult({ query: 'done/*', mode: 'logical', layer: 'request' }, {
+    physical: { type: 'offset-files', topic: 'done', levels: [5, 6], batch: 2 },
+    fixed: offsets.at(-1),
+    next, took, address: addressOf,
+    run: text => { ran.push(text); return query(stored, { done }, text) }
+  })
+  t.alike([result.nodeset.nodes, ran, result.done], [[], [], false], 'made: nothing loaded, nothing run')
+  const first = await result.iterateNext()
+  t.alike([first.path, first.stored], ['/done/*[@offset=1795400000002]', '/done/17954/179540/1795400000002.json'], 'the next node: at its logical address; where it is stored beside it')
+  t.is(ran.length, 1, 'one slice fetched for it')
+  t.is((await result.iterateNext()).path, '/done/*[@offset=1795400000001]', 'the next: from the slice in hand')
+  t.is(ran.length, 1, 'nothing fetched')
+  t.is((await result.iterateNext()).path, '/done/*[@offset=1795400000000]', 'past the slice: the next one fetched under the hood, the reader sees no boundary')
+  t.ok(ran.length > 1)
+  t.alike((await result.take(5)).map(n => n.path), ['/done/*[@offset=1795399999999]', '/done/*[@offset=1795312345678]'], 'take(n): the next n, fewer at the end; how many a reader takes is its own')
+  t.alike([await result.iterateNext(), result.done], [null, true], 'at the end: null')
+  // a reader that takes what it wants and stops: only the slices that took
+  const few = []
+  const partly = new XPathResult({ query: 'done/*', mode: 'logical' }, { physical: { type: 'offset-files', topic: 'done', batch: 2 }, fixed: offsets.at(-1), next, took, address: addressOf, run: text => { few.push(text); return query(stored, { done }, text) } })
+  t.alike((await partly.take(2)).length, 2)
+  t.is(few.length, 1, 'two taken of five: one slice fetched, the rest of the topic not touched')
+  t.is(partly.nodeset.done, false, 'its node set says there is more')
+  // a plain tree: logical and stored the same
+  const plain = new XPathResult({ query: 'swarms/*' }, { next, took, address: addressOf, run: text => query(tree, root, text) })
+  const seen = []
+  for await (const node of plain) seen.push([node.path, node.stored])
+  t.alike(seen, [['/swarms/swarm-1', '/swarms/swarm-1'], ['/swarms/swarm-2', '/swarms/swarm-2']], 'iterated; a plain tree: its address where it is stored')
 })

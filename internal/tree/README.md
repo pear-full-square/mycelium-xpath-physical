@@ -10,6 +10,7 @@ itself, and its result is the whole answer: one batch, then no more.
 
 - `next(set)`: the physical query for the node set's next batch.
 - `took(set, text, result)`: what that query's result is to the node set.
+- `addressOf(set, path)`: a stored path's logical address.
 
 ## Returns
 
@@ -18,3 +19,5 @@ itself, and its result is the whole answer: one batch, then no more.
 - `took`: `{ nodes, stopped, reached: 'end', done: true, full: true }`:
   the nodes found, where the query stopped at a shortcut, and that it is
   read to its end.
+- `addressOf`: the path itself: a plain tree's address is where it is
+  stored.

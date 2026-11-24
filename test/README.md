@@ -8,6 +8,7 @@ The tests of mycelium-xpath-physical, a section per file, each test by its name.
 - tree: its physical query is the logical one, once; its result the whole answer
 - a node set read: nothing loaded until it is asked; a batch by a physical query, seen; the answer the engine gives
 - a node set read to its end, and node by node
+- XPathResult: a query's result as an iterator: the next node asked for, its slices fetched under the hood, each node at its logical address
 
 ## `offset-files.test.js`
 
