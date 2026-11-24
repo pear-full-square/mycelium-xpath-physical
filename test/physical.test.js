@@ -16,7 +16,7 @@ test('the structure types there are; one not there is said', (t) => {
 
 test('tree: its physical query is the logical one, once; its result the whole answer', (t) => {
   const set = nodeset({ query: 'swarms/*', layer: 'main' })
-  t.alike(set, { id: null, logical: { query: 'swarms/*', mode: 'physical', layer: 'main' }, fixed: null, reached: null, physical: { type: 'tree' }, nodes: [], stopped: [], done: false }, 'a node set, made: the request, its storage, nothing loaded')
+  t.alike(set, { logical: { query: 'swarms/*', mode: 'physical', layer: 'main' }, fixed: null, reached: null, physical: { type: 'tree' }, nodes: [], stopped: [], done: false }, 'a node set, made: the request, its storage, nothing loaded')
   t.is(next(set), 'swarms/*', 'the physical XPath: the logical one')
   const step = took(set, 'swarms/*', { found: [{ path: '/swarms/swarm-1' }], stopped: [] })
   t.alike(step, { nodes: [{ path: '/swarms/swarm-1' }], stopped: [], reached: 'end', done: true, full: true })
@@ -51,7 +51,7 @@ test('a node set read to its end, and node by node', async (t) => {
   t.alike(await reading('nothing/*').all(), [], 'nothing there: empty, done')
 })
 
-test('XPathResult: a query\'s result as an iterator: the next node asked for, its slices fetched under the hood, each node at its logical address', async (t) => {
+test('XPathResult and XPathIterator: a result says what was asked and its translation; its iterator gives the next node, slices fetched behind the scenes', async (t) => {
   // a topic stored a record a file by its offset, in folders by its digits
   const record = offset => ({ topic: '/request/done', offset, value: { n: offset % 10 } })
   const offsets = [1795312345678, 1795399999999, 1795400000000, 1795400000001, 1795400000002]
@@ -66,22 +66,26 @@ test('XPathResult: a query\'s result as an iterator: the next node asked for, it
     next, took, address: addressOf,
     run: text => { ran.push(text); return query(stored, { done }, text) }
   })
-  t.alike([result.nodeset.nodes, ran, result.done], [[], [], false], 'made: nothing loaded, nothing run')
-  const first = await result.iterateNext()
+  t.alike([result.metadata, ran], [{ logical: { query: 'done/*', mode: 'logical', layer: 'request' }, physical: { type: 'offset-files', topic: 'done', levels: [5, 6], batch: 2 }, fixed: offsets.at(-1), reached: null, done: false, last: null }, []], 'made: its metadata, the logical query and its storage; nothing loaded, nothing run')
+  t.absent('more' in result || 'nodeset' in result || 'iterateNext' in result, 'how it gets more is its own: nothing of it to call')
+  const iterator = result.iterator()
+  const first = await iterator.iterateNext()
   t.alike([first.path, first.stored], ['/done/*[@offset=1795400000002]', '/done/17954/179540/1795400000002.json'], 'the next node: at its logical address; where it is stored beside it')
   t.is(ran.length, 1, 'one slice fetched for it')
-  t.is((await result.iterateNext()).path, '/done/*[@offset=1795400000001]', 'the next: from the slice in hand')
+  t.is((await iterator.iterateNext()).path, '/done/*[@offset=1795400000001]', 'the next: from the slice in hand')
   t.is(ran.length, 1, 'nothing fetched')
-  t.is((await result.iterateNext()).path, '/done/*[@offset=1795400000000]', 'past the slice: the next one fetched under the hood, the reader sees no boundary')
+  t.is((await iterator.iterateNext()).path, '/done/*[@offset=1795400000000]', 'past the slice: the next one fetched under the hood, the reader sees no boundary')
   t.ok(ran.length > 1)
-  t.alike((await result.take(5)).map(n => n.path), ['/done/*[@offset=1795399999999]', '/done/*[@offset=1795312345678]'], 'take(n): the next n, fewer at the end; how many a reader takes is its own')
-  t.alike([await result.iterateNext(), result.done], [null, true], 'at the end: null')
+  t.is(result.metadata.last, ran.at(-1), 'its translation in its metadata: the physical query it is at')
+  t.alike((await iterator.take(5)).map(n => n.path), ['/done/*[@offset=1795399999999]', '/done/*[@offset=1795312345678]'], 'take(n): the next n, fewer at the end; how many a reader takes is its own')
+  t.alike([await iterator.iterateNext(), result.metadata.done], [null, true], 'at the end: null')
+  t.is((await result.iterator().iterateNext()).path, '/done/*[@offset=1795400000002]', 'another iterator: from its start, what the result holds read again, nothing fetched twice')
   // a reader that takes what it wants and stops: only the slices that took
   const few = []
   const partly = new XPathResult({ query: 'done/*', mode: 'logical' }, { physical: { type: 'offset-files', topic: 'done', batch: 2 }, fixed: offsets.at(-1), next, took, address: addressOf, run: text => { few.push(text); return query(stored, { done }, text) } })
-  t.alike((await partly.take(2)).length, 2)
+  t.alike((await partly.iterator().take(2)).length, 2)
   t.is(few.length, 1, 'two taken of five: one slice fetched, the rest of the topic not touched')
-  t.is(partly.nodeset.done, false, 'its node set says there is more')
+  t.is(partly.metadata.done, false, 'its metadata says there is more')
   // a plain tree: logical and stored the same
   const plain = new XPathResult({ query: 'swarms/*' }, { next, took, address: addressOf, run: text => query(tree, root, text) })
   const seen = []
