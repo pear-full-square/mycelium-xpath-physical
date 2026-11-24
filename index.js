@@ -11,8 +11,9 @@
 //   isType(name), TYPES       the structure types there are
 // Pure functions of the node set's data: a run reproduces them.
 import * as tree from './internal/tree/index.js'
+import * as offsetFiles from './internal/offset-files/index.js'
 
-export const TYPES = { tree }
+export const TYPES = { tree, 'offset-files': offsetFiles }
 export const isType = name => Object.hasOwn(TYPES, name)
 const of = set => {
   const type = set?.physical?.type

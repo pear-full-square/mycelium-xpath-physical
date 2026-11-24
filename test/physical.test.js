@@ -7,11 +7,11 @@ const tree = { children: node => (node !== null && typeof node === 'object' ? Ob
 const paths = nodes => nodes.map(n => n.path)
 
 test('the structure types there are; one not there is said', (t) => {
-  t.alike(Object.keys(TYPES), ['tree'])
-  t.ok(isType('tree'))
-  t.absent(isType('offset-files'), 'not built yet')
+  t.alike(Object.keys(TYPES), ['tree', 'offset-files'])
+  t.ok(isType('tree') && isType('offset-files'))
+  t.absent(isType('avro-container'), 'not built yet')
   t.absent(isType('toString'), 'a name of the object\'s own is none')
-  t.exception(() => next(nodeset({ query: 'swarms/*' }, { type: 'parquet' })), /not a structure type: parquet \(tree\)/)
+  t.exception(() => next(nodeset({ query: 'swarms/*' }, { type: 'parquet' })), /not a structure type: parquet \(tree, offset-files\)/)
 })
 
 test('tree: its physical query is the logical one, once; its result the whole answer', (t) => {

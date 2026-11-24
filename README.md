@@ -22,9 +22,9 @@ One implementation a way of storing, dispatched on the node set's
 | type | what it is |
 |---|---|
 | `tree` | a plain tree, read as it is: its physical XPath is the logical one, its answer one batch |
+| `offset-files` | a topic stored a record a file named by its offset, in folders by its digits (a streaming layer): batches of 50 from the latest back, each physical query inside one folder, by name and position |
 
-To come: `offset-files` (a record a file named by its offset, in folders
-by its digits: a streaming layer), an AVRO container, a Hypercore topic.
+To come: an AVRO container, a Hypercore topic.
 
 ## API
 
