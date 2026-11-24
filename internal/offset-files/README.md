@@ -14,8 +14,9 @@ at a time, from the node set's fixed offset back: the latest first.
 - `next(set)`: the physical query for the next part of the node set's
   next batch.
 - `took(set, text, result)`: what that query's result is to the node set.
-- `asked(set)`: what the logical query asks of the records, after
-  `<topic>/*`.
+- `plan(set)`: what the logical query asks of its topic, read from its
+  text: what is handed down (bounds on the offset, a position) and what
+  is asked of each record read. `asked(set)`: the latter alone.
 
 The node set's `physical`: `{ type: 'offset-files', topic, levels,
 batch, extension }`: where the topic is in its layer (`''`: the layer
@@ -41,9 +42,20 @@ when the query was made; `null`: nothing in it.
   handed over the latest first; `full` when the batch has its count;
   `done` at the topic's start. A batch may take several physical
   queries: one stays inside one stored folder.
-- `asked`: the rest of the logical query. A logical query that is not
-  `<topic>/*` with filters and a path is refused; a position among the
-  records (`[last()]`, `[position()<=10]`) too, said as not built yet.
+- `plan`: `{ exact, upper, lower, limit, asked }`. Handed down, the
+  filters right on the records, in this order:
+  - **bounds on the offset**, the index its name is: `[@offset=N]`, one
+    record: its folder said by its digits, that folder scanned for it
+    (`done/17953/179539/*[name()='1795399999999.json']`), no other
+    touched; `[@offset<N]`, `[@offset<=N]`: the reading starts there,
+    nothing later touched; `[@offset>N]`, `[@offset>=N]`: it stops
+    there, nothing before that folder touched;
+  - **then a position**: `[last()]`, the latest; `[position()>last()-N]`,
+    the latest N: that many records are read and no more.
+  The rest is asked of each record read: filters on its data, a path
+  into it. A logical query that is not `<topic>/*` with filters and a
+  path is refused; a position anywhere else (after a filter on the
+  data, counted from the topic's start) too, said as not built yet.
 
 ## Side effects
 
